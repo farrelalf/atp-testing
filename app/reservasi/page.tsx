@@ -76,90 +76,99 @@ export default function ReservasiPage() {
     setSubmitError(null)
   }
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
+const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+  event.preventDefault()
 
-    setSubmitError(null)
-    setIsSubmitting(true)
+  setSubmitError(null)
+  setIsSubmitting(true)
 
-    if (!supabase) {
-      setSubmitError("Supabase environment belum terkonfigurasi.")
-      setIsSubmitting(false)
-      return
-    }
-
-    const {
-      data: { session },
-    } = await supabase.auth.getSession()
-    console.log("SESSION:", session)
-
-    if (!session) {
-      setIsSubmitting(false)
-      await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
-        },
-      })
-      return
-    }
-
-    let dokumenUrl: string | null = null
-
-    if (uploadedFile) {
-      const sanitizedName = uploadedFile.name.replace(/\s+/g, "-")
-      const filePath = `${Date.now()}-${sanitizedName}`
-
-      const { error: uploadError } = await supabase
-        .storage
-        .from("dokumen")
-        .upload(filePath, uploadedFile)
-
-      if (uploadError) {
-        console.error("INSERT ERROR:", uploadError)
-        setSubmitError(uploadError.message)
-        setIsSubmitting(false)
-        return
-      }
-
-      const { data: publicFile } = supabase.storage.from("dokumen").getPublicUrl(filePath)
-      dokumenUrl = publicFile.publicUrl
-    }
-
-    const sesiMap: Record<string, "Pagi" | "Siang"> = {
-      pagi: "Pagi",
-      siang: "Siang",
-      "Pagi (08:00 - 12:00)": "Pagi",
-      "Siang (13:00 - 16:00)": "Siang",
-    }
-    const sesiKunjungan = sesiMap[form.sesiKunjungan] ?? null
-
-    const payload = {
-      nama_lengkap: form.namaLengkap,
-      email: form.email,
-      nomor_telepon: form.nomorTelepon,
-      tanggal_kunjungan: form.tanggalKunjungan,
-      sesi_kunjungan: sesiKunjungan,
-      fasilitas: selectedFacilities,
-      status: "pending" as const,
-      dokumen_url: dokumenUrl,
-    }
-
-    const { error } = await supabase.from("reservasi").insert(payload)
-
-    if (error) {
-      console.error("INSERT ERROR:", error)
-      setSubmitError(error.message)
-      setIsSubmitting(false)
-      return
-    }
-
-    alert("Reservasi berhasil dikirim.")
-    setForm(initialForm)
-    setSelectedFacilities([])
-    setUploadedFile(null)
+  if (!supabase) {
+    setSubmitError("Supabase environment belum terkonfigurasi.")
     setIsSubmitting(false)
+    return
   }
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+
+  console.log("SESSION:", session)
+
+  // 🔥 FIX 1: SIMPAN DATA FORM + REDIRECT
+  if (!session) {
+    setIsSubmitting(false)
+
+    localStorage.setItem("redirectAfterLogin", "/reservasi")
+    localStorage.setItem("formData", JSON.stringify({
+      form,
+      selectedFacilities
+    }))
+
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`, // ✅ FIX
+      },
+    })
+
+    return
+  }
+
+  // 🔥 LANJUT SUBMIT NORMAL
+  let dokumenUrl: string | null = null
+
+  if (uploadedFile) {
+    const sanitizedName = uploadedFile.name.replace(/\s+/g, "-")
+    const filePath = `${Date.now()}-${sanitizedName}`
+
+    const { error: uploadError } = await supabase
+      .storage
+      .from("dokumen")
+      .upload(filePath, uploadedFile)
+
+    if (uploadError) {
+      setSubmitError(uploadError.message)
+      setIsSubmitting(false)
+      return
+    }
+
+    const { data } = supabase.storage.from("dokumen").getPublicUrl(filePath)
+    dokumenUrl = data.publicUrl
+  }
+
+  const sesiMap: Record<string, "Pagi" | "Siang"> = {
+    pagi: "Pagi",
+    siang: "Siang",
+  }
+
+  const payload = {
+    nama_lengkap: form.namaLengkap,
+    email: form.email,
+    nomor_telepon: form.nomorTelepon,
+    tanggal_kunjungan: form.tanggalKunjungan,
+    sesi_kunjungan: sesiMap[form.sesiKunjungan],
+    fasilitas: selectedFacilities,
+    status: "pending",
+    dokumen_url: dokumenUrl,
+  }
+
+  const { error } = await supabase.from("reservasi").insert(payload)
+
+  if (error) {
+    setSubmitError(error.message)
+    setIsSubmitting(false)
+    return
+  }
+
+  alert("Reservasi berhasil dikirim.")
+
+  localStorage.removeItem("formData")
+
+  setForm(initialForm)
+  setSelectedFacilities([])
+  setUploadedFile(null)
+  setIsSubmitting(false)
+}
 
   useEffect(() => {
     if (!supabase) return
